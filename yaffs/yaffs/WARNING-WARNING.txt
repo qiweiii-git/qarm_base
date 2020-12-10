@@ -1,0 +1,10 @@
+The original YAFFS(1) code (the stuff in this directory) is pretty much
+obsoleted and unmaintained, although thought to be reasonably stable.
+
+You'd most likley be far better off using the YAFFS2 tree which can support
+512-byte page NAND in a backward compatability mode.
+
+YAFFS2 gets all the attention these days and very few changes are made to
+the original yaffs tree. 
+
+

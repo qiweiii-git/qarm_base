@@ -1,0 +1,45 @@
+!IF 0
+
+ YAFFS: Yet another FFS. A NAND-flash specific file system.
+; SOURCES: The FSD layer for the WinCE version of YAFFS.
+;
+; Copyright (C) 2002 Trimble Navigation Limited.  All rights reserved.
+;
+; Created by Charles Manning <charles.manning@trimble.co.nz>
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License version 2 as
+; published by the Free Software Foundation.
+; This program is distributed in the hope that it will be useful, but 
+;
+; WITHOUT ANY WARRANTY; without even the implied warranty of 
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General 
+; Public License for more details. You should have received a copy of the
+; GNU General Public License along with this program; if not, write to the 
+; Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+;
+; $Id: sources,v 1.3 2003/05/20 22:30:36 charles Exp $
+
+
+
+!ENDIF
+
+!if "$(ODO_NODISPLAY)" == "1"
+SKIPBUILD=1
+!endif
+
+RELEASETYPE=PLATFORM
+
+TARGETNAME=YFSD
+TARGETTYPE=DYNLINK
+TARGETLIBS=                                             \
+    $(_PUBLICROOT)\COMMON\OAK\lib\arm\Sa1100\ce\retail\fsdmgr.lib \
+    $(_COMMONSDKROOT)\lib\$(_CPUINDPATH)\coredll.lib    \
+
+CDEFINES=  $(CDEFINES) -DCONFIG_YAFFS_WINCE -DCONFIG_YAFFS_SHORT_NAMES_IN_RAM 
+
+
+SOURCES=  yaffs_guts.c yaffs_ecc.c yaffsfsd.c ynandif.c 
+
+    
+

@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20021129;9042700">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20030121;16011900">
+</HEAD>
+<BODY>
+<H1>YAFFS Direct Interface (YDI)</H1>
+<H2>Now hear this!</H2>
+<P>YAFFS code is GPL. The YAFFS Direct Interface(YDI) is really
+intended to provide a direct interface to YAFFS in an embedded/RTOS
+environment. Using YAFFS in this way might violate GPL. Aleph One are
+looking at ways to make YAFFS licensing more flexible to support both
+GPL and YDI users. For further info, please contact Aleph One.</P>
+<H3>Purpose</H3>
+<P>The purpose of the YAFFS Direct Interface is to provide YAFFS to
+embedded/RTOS environments where full file system support is not
+available. Typically, therefore, YDI is intended for smaller embedded
+systems.</P>
+<H3>Software Modules</H3>
+<P>The software is designed in a modular fashion to facilitate
+integration and configuration.</P>
+<P>The software comprises the following main sections:</P>
+<UL>
+	<LI><P>yaffscfg.c Configuration. Set up various device features etc
+	and some OS integration (eg. locking function). Allows tuning.</P>
+	<LI><P>yaffsfs.c: File system interface functions (and associated
+	header file for inclusion in application code). 
+	</P>
+	<LI><P>yaffs_flashif.c NAND integration functions (to be completed
+	by the integrator) This currently holds a second ramdisk for test
+	purposes.</P>
+	<LI><P>yaffs_guts.c: The file system algorithms for yaffs.</P>
+	<LI><P>nand_ecc.c: The ECC algorithms.</P>
+	<LI><P>yaffs_ramdisk.c: RAMdisk support code.</P>
+	<LI><P>yaffs_fileem.c: Flash emulation on a host file. This is for
+	testing purposes only.</P>
+	<LI><P>dtest.c: Test harness functions.</P>
+</UL>
+<P><BR><BR>
+</P>
+<H2>General Notes</H2>
+<H3>Licensing</H3>
+<P>The YAFFS file system is GPL.</P>
+<P>The YAFFS bootloader and header files are LGPL to allow
+incorporation of these into proprietary code.</P>
+<P>nand_ecc.c, copyright SJ Hill, is LGPL.</P>
+<H3>File names</H3>
+<P>Multiple partitions are defined by setting up the partition table
+in yaffscfg.c.</P>
+<P>The system has no concept of current directory, therefore all
+names and paths must be fully specified. eg. &quot;/boot/xxx&quot;</P>
+<P>Names are case sensitive. 
+</P>
+<P>The divider between path elements is '/'. eg &quot;/ram/dir/file&quot;.</P>
+<H3>Permissions and attributes</H3>
+<P>The following permissions are supported in mode: S_IREAD,
+S_IWRITE.</P>
+<P>The following opening modes are checked: O_RDONLY, O_WRONLY,
+O_RDWR, O_EXCL.</P>
+<P>Times are just flat 32-bit numbers. The meaning of these numbers
+is OS dependent and is defined by completing the funbctiuon
+yaffsfs_CurrentTime() in yaffscfg.c</P>
+<P>Attributes are stored as a 32-bit unsigned value. Some of these
+are reserved. Others are used transparently (and may be used for
+additional information by the application). Reserved are:</P>
+<UL>
+	<LI><P>S_IREAD, S_IWRITE.</P>
+	<LI><P>S_IFMT, the file type bit-field for S_IFREG, S_IFDIR and
+	S_IFLNK.</P>
+</UL>
+<P><BR><BR>
+</P>
+<H3>Threading</H3>
+<P>All yaffs routines are thread safe when called through the
+specified interface.</P>
+<P>All yaffs routines are controlled by a single locking
+mutex/semaphore by defining yaffsfs_Lock() and yaffsfs_Unlock() in
+yaffscfg.c. 
+</P>
+<P>Thus, only one thread is able to execute yaffs functions at a
+time. Most yaffs functions execute quickly, so this generally not a
+limitation.</P>
+<H3>Compilation Configuration</H3>
+<P>Configuration is done in four places: 
+</P>
+<UL>
+	<LI><P>yaffscfg.c: OS specific functions</P>
+	<LI><P>yaffscfg.h: Preferably only change YAFFSFS_N_HANDLES, the
+	number of files that can be simultaneously opened.</P>
+	<LI><P>yportenv.h: Preferably do not change this.</P>
+	<LI><P>Compile options. The valid compile options for the YAFFS
+	direct interface are:</P>
+	<LI><P>CONFIG_YAFFS_DIRECT must be enabled to use the direct
+	interface.</P>
+	<LI><P>CONFIG_YAFFS_SHORT_NAMES_IN_RAM define to enable short name
+	caching. This is suggested in cases unless RAM is very limited.</P>
+</UL>
+<H3>Device Configuration</H3>
+<P>The device configuration table is set up in yaffscfg.c and
+specifies what devices are in the system. The order is important
+since this is the order that is used when searching for
+files/directories and provides the &quot;switch&quot; mechanism to
+support multiple &quot;mount points&quot;</P>
+<P>The device configuration has the form:</P>
+<P STYLE="margin-left: 2cm"><FONT FACE="Courier, monospace">struct {
+<BR>const char *prefix;<BR>yaffs_Device *dev;<BR>};</FONT></P>
+<P>eg.</P>
+<P STYLE="margin-left: 2cm"><FONT FACE="Courier, monospace">{<BR>{&quot;/ram&quot;,ramDevice},
+<BR>{&quot;/boot&quot;,bootDevice},<BR>{&quot;/flash&quot;,flashDevice},<BR>{NULL,NULL}<BR>}</FONT></P>
+<P>Note that multiple yaffs_Devices can share a single physical NAND
+device by &quot;partitioning&quot;. Thus, for instance, /boot and
+/data may be on the same physical device, just with non-overlapping
+regions.</P>
+<P>Different properties may be attached to the different yaffs_Device
+entries. For example note that the RAM disk is set up with different
+NANDECC flags.</P>
+<H4>API Notes</H4>
+<P>int yaffs_open(const char *path, int oflag, int mode) ;</P>
+<P>Supported flags O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_RDONLY,
+O_RDWR, O_WRONLY.</P>
+<P>int yaffs_read(int fd, void *buf, unsigned int nbyte) ;</P>
+<P>int yaffs_write(int fd, const void *buf, unsigned int nbyte) ;</P>
+<P>int yaffs_close(int fd) ;</P>
+<P>off_t yaffs_lseek(int fd, off_t offset, int whence) ;</P>
+<P>int yaffs_unlink(const char *path) ;</P>
+<P>int yaffs_rename(const char *old, const char *new) ;</P>
+<P>int yaffs_stat(const char *path, struct stat *buf) ;</P>
+<P>int yaffs_lstat(const char *path, struct stat *buf) ;</P>
+<P>int yaffs_fstat(int fd, struct, struct stat *buf) ;</P>
+<P>int yaffs_chmod(const char *path, mode_t mode) ;</P>
+<P>int yaffs_fchmod(int fd, struct, mode_t mode) ;</P>
+<P>int yaffs_mkdir(const char *path, mode_t mode) ;</P>
+<P>int yaffs_rmdir(const char *path) ;</P>
+<P>yaffs_DIR *yaffs_opendir(const char *dirname) ;</P>
+<P>struct yaffs_dirent *yaffs_readdir(yaffs_DIR *dirp) ;</P>
+<P>void yaffs_rewinddir(yaffs_DIR *dirp) ;</P>
+<P>int yaffs_closedir(yaffs_DIR *dirp) ;</P>
+<P>int yaffs_mount(const char *path) ;</P>
+<P>int yaffs_unmount(const char *path) ;</P>
+<P>int yaffs_symlink(const char *oldpath, const char *newpath); 
+</P>
+<P>int yaffs_readlink(const char *path, char *buf, size_t bufsiz); 
+</P>
+<P>int yaffs_link(const char *oldpath, const char *newpath); 
+</P>
+<P>int yaffs_mknod(const char *pathname, mode_t mode, dev_t dev);</P>
+<P>off_t yaffs_freespace(const char *path);</P>
+<H3><BR><BR>
+</H3>
+<P>$Id: yaffs_direct.html,v 1.1 2003/01/21 03:34:12 charles Exp $</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

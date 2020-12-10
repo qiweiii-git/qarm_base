@@ -1,0 +1,719 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20020429;14311100">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20020513;21133100">
+</HEAD>
+<BODY>
+<H1 ALIGN=CENTER>YAFFS Development Notes</H1>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<H3>Build options</H3>
+<P>Yaffs can be built as either a kernel module (ie. a Linux file
+system) or as an application.</P>
+<P>Of course the goal is to build yaffs as a file system running on
+top of real NAND flash, but yaffs can be built to run on a RAM
+emulation layer for in-kernel testing without NAND flash in the
+system.</P>
+<P>Building as an application allows the yaffs_guts algorithms to be
+tested/debugged in a more friendly debugging environment. The test
+harness is in yaffsdev.c</P>
+<H3>Trying it out</H3>
+<P>YAFFS can be built to run with either mtd or RAM emulation, or
+both. The file system that interfaces to mtd is called <B>yaffs</B>,
+the file system that uses internal ram is called <B>yaffsram</B>.
+YAFFS simultaneously supports both if they are enabled.</P>
+<OL>
+	<LI><P>Hack the Makefile and change the KERNELDIR define to your
+	kernel directory.</P>
+	<LI><P>If you don't have mtd support in your kernel, then you might
+	need to turn off USE_MTD otherwise the yaffs module might not load.</P>
+	<LI><P>Type <B><FONT FACE="Courier, monospace">make clean; make</FONT></B>
+	to build yaffs</P>
+	<LI><P>Load yaffs as a module by typing <B><FONT FACE="Courier, monospace">/sbin/insmod
+	yaffs.o</FONT></B> (ya gotta be root!).</P>
+	<LI><P>Create a mount point eg. <B><FONT FACE="Courier, monospace">mkdir
+	/mnt/y</FONT></B></P>
+	<LI><P>To mount the RAM emulation version of yaffs,  <B><FONT FACE="Courier, monospace">mount
+	-t yaffsram none /mnt/y</FONT></B></P>
+	<LI><P><FONT FACE="Courier, monospace"><SPAN STYLE="font-weight: medium"><FONT FACE="Times, serif">Alternatively,
+	to mount the mtd version of yaffs,</FONT></SPAN><B> mount -t yaffs
+	/dev/mtd0 /mnt/y</B></FONT></P>
+</OL>
+<P><BR><BR>
+</P>
+<H3>YAFFS Data structures</H3>
+<P>All data types are defined in yaffs_guts.h</P>
+<P>Yaffs uses the following major objects:</P>
+<UL>
+	<LI><P>yaffs_Object: A yaffs_Object can be a file, directory,
+	symlink or hardlink. The yaffs_Objects &quot;know&quot; about their
+	corresponding yaffs_ObjectHeader in NAND and the data for that
+	object. yaffs_Objects also bind together the directory structure as
+	follows:</P>
+	<LI><P>parent: pointer to the yaffs_Object that is a parent of this
+	yaffs_Object in the directory structure.</P>
+	<LI><P>siblings: this field is used to link together a list of all
+	the yaffs_Objects in the same directory.</P>
+	<LI><P>children: if the object is a directory, then children holds
+	the head of the list of objects in the directory.</P>
+	<LI><P>yaffs_Tnode: yaffs_Tnodes form a tree structure that speeds
+	up the search for data chunks in a file. As the file grows in size,
+	the levels increase. The Tnodes are a constant size (32 bytes).
+	Level 0 (ie the lowest level) comprise 16 2-byte entries giving an
+	index used to search for the chunkId. Tnodes at other levels
+	comprise 8 4-byte pointer entries to other tnodes lower in the tree.</P>
+	<LI><P>yaffs_Device: this holds the device context and is in some
+	ways analogous to the VFS superblock. It stores the data used to
+	access the mtd as well as function pointers to access the NAND data.</P>
+</UL>
+<P>The Tnodes and Objects are allocated in groups to reduce memory
+allocation/freeing overheads. Freed up tnodes and objects are kept in
+a free list and re-used.</P>
+<H3>yaffs_Object</H3>
+<P><BR><BR>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>struct
+ yaffs_ObjectStruct</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>{</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u8
+fake:1;		    // A fake object has no presence on NAND.</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u8
+renameAllowed:1;           // Are we allowed to rename it?</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u8
+unlinkAllowed:1;           // Are we allowed to unlink it?</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u8
+dirty:1;		    // the object needs to be written to flash</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u8
+valid:1;		    // When the file system is being loaded up, this </FONT></FONT>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>				
+   // object might be created before the data</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>				
+   // is available (ie. file data records appear before the header).</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u8
+serial;		    // serial number of chunk in NAND. Store here so we
+don't have to</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>				
+   // read back the old one to update.</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u16
+sum;		    // sum of the name to speed searching</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	struct
+yaffs_DeviceStruct *myDev; // The device I'm on</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>								</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	struct
+list_head hashLink;	// list of objects in this hash bucket</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>							</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><BR>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	struct
+list_head hardLinks; // all the equivalent hard linked objects</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>				//
+live on this list</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	//
+directory structure stuff</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	struct
+yaffs_ObjectStruct  *parent;	//my parent directory</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	struct
+list_head siblings;	          // siblings in a directory</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>					
+// also used for linking up the free list</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>		</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	//
+Where's my data in NAND?</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	int
+chunkId;		// where it lives</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+objectId;		// the object id value</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_mode;  	// protection</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_uid;   	// user ID of owner</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_gid;    	// group ID of owner </FONT></FONT>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_atime; 	// time of last access</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_mtime; 	// time of last modification</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_ctime; 	// time of last change</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><BR>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	yaffs_ObjectType
+variantType;</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	yaffs_ObjectVariant
+variant;</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>};</FONT></FONT></P>
+<P><BR><BR>
+</P>
+<P>Obvious stuff skipped....</P>
+<P>fake, renameAllowed, unlinkAllowed are special flags for handling
+&quot;fake&quot; objects which live in the file system but do not
+live on NAND. Currently there are only two such objects: the root
+object and the lost+found directory. None of these may be renamed or
+unlinked.</P>
+<P>serial, sum: see yaffs_ObjectHeader.</P>
+<P>dirty indicates that the object's contents has changed and a new
+yaffs_ObjectHeader must be written to flash.</P>
+<P>valid indicates that the object has been loaded up. This is only
+used during scanning (yaffs_Scan()) since we can know of an object's
+existance - and thus need to create the object header - before we
+encounter the associated yaffs_ObjectHeader.</P>
+<P>hashlink is a list of Objects in the same hash bucket. 
+</P>
+<P>The four variants hold extra info:</P>
+<P>Files hold the file size and the top level and pointer to the
+tnode tree for the file.</P>
+<P>Directories hold a list of children objects.</P>
+<P>Symlinks hold a pointer to the alias string. This is probably
+inefficient, but that probably does not matter since we don't expect
+to see many of these. 
+</P>
+<P>Hardlinks hold information to identify the equivalent object.</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<H3>File structure (tnodes)</H3>
+<P>File structures are done with a tiered indexing structure</P>
+<P><BR><BR>
+</P>
+<P><IMG SRC="sv9349341.gif" NAME="Graphic2" ALIGN=LEFT WIDTH=491 HEIGHT=294 BORDER=0><BR CLEAR=LEFT><BR><BR>
+</P>
+<P>The file structure is maintained by a tree structure. Depending
+where it is in the tree, each tree node (<B><I>tnode</I></B>) (the
+blue/things) holds either:</P>
+<UL>
+	<LI><P>.... if it is at the lowest level, then 16 __u16s which
+	identify the page.</P>
+	<LI><P>.... if it is at a higher level (ie an internal tnode), then
+	8 pointers to lowest-level tnodes.</P>
+</UL>
+<P>When the file starts out, it is assigned only one low-level tnode.
+When the file expands past what a single tnode can hold, then it is
+assigned a second tnode and an internal node is added to point to the
+two tnodes. As the file grows, more low-level tnodes and high level
+tnodes are added.</P>
+<P>Traversing the tnode tree to find a particular page in a file is
+quite simple: each internal tnode is selected from by using 3 bits of
+the page offset in the file. The level 0 page resolves 4 bits.</P>
+<P>For example, finding page 0x235 (ie. the one starting at file
+position 0x46800 would proceed as follows:</P>
+<P>0x235 is 0000001000110101, partitioned as follows.
+000.000.100.011.0101</P>
+<TABLE WIDTH=496 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=140>
+	<COL WIDTH=160>
+	<COL WIDTH=158>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=140>
+				<P>Level</P>
+			</TH>
+			<TH WIDTH=160>
+				<P>Bits</P>
+			</TH>
+			<TH WIDTH=158>
+				<P>Selected value</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR VALIGN=TOP>
+			<TD WIDTH=140>
+				<P>3 or more if they exist</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>&gt;= 10</P>
+			</TD>
+			<TD WIDTH=158>
+				<P>Zero</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=140 VALIGN=BOTTOM SDVAL="2" SDNUM="5129;">
+				<P ALIGN=RIGHT>2</P>
+			</TD>
+			<TD WIDTH=160 VALIGN=TOP>
+				<P ALIGN=LEFT>9 to 7</P>
+			</TD>
+			<TD WIDTH=158 VALIGN=TOP>
+				<P>100 binary = 4</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=140 VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=160 VALIGN=TOP>
+				<P ALIGN=LEFT>6 to 4</P>
+			</TD>
+			<TD WIDTH=158 VALIGN=TOP>
+				<P>011 binary = 3</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=140 VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+			<TD WIDTH=160 VALIGN=TOP>
+				<P ALIGN=LEFT>3 to 0</P>
+			</TD>
+			<TD WIDTH=158 VALIGN=TOP>
+				<P>0101 binary = 5</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>Free tnodes are stored in a list. When the list is exhausted, more
+are allocated.</P>
+<P>Each tnode takes 32 bytes. Each file needs at least one level 0
+tnode. How many do we need? A full 16MB file system needs at least
+16MB/512/16 = 2000 level zero tnodes. More for internal tnodes. More
+for files smaller than optimal.</P>
+<P>The tree grows as required. When the file is resized to a smaller
+size then it is pruned.</P>
+<P><BR><BR>
+</P>
+<H3>NAND data</H3>
+<P>Data is stored on NAND in &quot;chunks&quot;. Currently each chunk
+is the same size as a NAND flash page (ie. 512 bytes + 16 byte
+spare). In the future we might decide to allow for different chunk
+sizes. Chunks can hold either:</P>
+<UL>
+	<LI><P>A yaffs_ObjectHeader. This is the way a yaffs_Object gets
+	stored on NAND.</P>
+	<LI><P>A chunk of file data.</P>
+</UL>
+<P>The 16 byte spare area contains:</P>
+<UL>
+	<LI><P>8 bytes of tags,</P>
+	<LI><P>6 bytes of ECC data</P>
+	<LI><P>1 byte block status (used to identify damaged blocks)</P>
+	<LI><P>1 byte data status (currently unused).</P>
+</UL>
+<P>The tags are made up as follows:</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>typedef
+struct</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>{</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+   unsigned chunkId:20;     //chunk number in file</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+   unsigned serialNumber:2; //serial number for chunk</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+   unsigned byteCount:10;   //number of bytes of data used in this
+chunk</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+   unsigned objectId:18;    //the object id that this chunk belongs
+to. </FONT></FONT>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+   unsigned ecc:12;         //ECC on tags</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+   unsigned unusedStuff:2;  //unused</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>}
+yaffs_Tags;</FONT></FONT></P>
+<P STYLE="margin-bottom: 0cm"><BR>
+</P>
+<P>A chunkId of zero indicates that this chunk holds a
+yaffs_ObjectHeader. A non zero value indicates that this is a data
+chunk and  the position of the chunk in the file (ie. the first chunk
+- at offset 0 - has chunkId 1). See yaffs_guts.c:yaffs_Scan () to see
+how this is done.</P>
+<P>When a chunk is repalced (eg. file details changed or a part of a
+file was overwritten), the new chunk is written before the old chunk
+is deleted. This means that we don't lose data if there is a power
+loss after the new chunk is created but before the old one is
+discarded, but it does mean that we can encounter the situation where
+we find both the old and the new chunks in flash. The serialNumber is
+incremented each time the chunk is written. 2 bits is sufficient to
+resolve any ambiguity.</P>
+<P>bytecount applies only to data chunks and tells how many of the
+data bytes are valid.</P>
+<P>objectId says which object this chunk belongs to.</P>
+<P>ecc is used to perform error correction on the tags. Another ecc
+field is used to error correct the data.</P>
+<P><BR><BR>
+</P>
+<H3>yaffs_ObjectHeader</H3>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>typedef
+struct</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>{</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	yaffs_ObjectType
+type;</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><BR>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	//
+Apply to everything	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	int
+  parentObjectId;</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u16
+sum;	// checksum of name</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	char
+ name[YAFFS_MAX_NAME_LENGTH + 1];</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><BR>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	//
+Thes following apply to directories, files, symlinks - not hard links</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_mode;  // protection</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_uid;   // user ID of owner</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_gid;    // group ID of owner </FONT></FONT>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_atime; // time of last access</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_mtime; // time of last modification</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	__u32
+st_ctime; // time of last change</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	//
+File size  applies to files only</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	int
+fileSize; </FONT></FONT>
+</P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>		</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	//
+Equivalent object id applies to hard links only.</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	int
+ equivalentObjectId;</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>
+        // alias only applies to symlinks</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	char
+alias[YAFFS_MAX_ALIAS_LENGTH + 1];</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>	</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><FONT FACE="Courier, monospace"><FONT SIZE=2>}
+yaffs_ObjectHeader;</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; margin-bottom: 0cm"><BR>
+</P>
+<P>A yaffs_ObjectHeader is stored in NAND for every yaffs_Object.</P>
+<P>type holds the type of yaffs_Object (file,directory,hardlink or
+symlink).</P>
+<P>parentObject is the objectId of this object's parent. name holds
+the object's name. Together these form the directory structure of the
+file system. Also worth mention is sum. This is a &quot;checksum&quot;
+on the name which speeds directory searching (ie. when searching the
+directory we only compare the name for those entries where sum
+matches).</P>
+<P>Obvious stuff skipped....</P>
+<P>equivalentObjectId is used by hardlinks. A hardlink to an object
+uses this field to specify the object that this links to. This way of
+doing things is a bit different than the normal Linux way of doing
+things (ie. keeping the links distinct from the inode) but is simpler
+and uses less space except for a few corner cases with hardlinks.</P>
+<P>alias is used by symlinks to hold the symlink alias string. This
+limits the size of the symlink alias. In future we should expand
+YAFFS to use data chunks to store aliases too long to fit into the
+yaffs_ObjectHeader.</P>
+<P><BR><BR>
+</P>
+<H3>NAND Interface</H3>
+<P>All NAND access is performed via four functions pointed to by
+yaffs_Device. At the moment a chunk is a page.</P>
+<UL>
+	<LI><P><FONT FACE="Courier, monospace"><FONT SIZE=2>int
+	WriteChunkToNAND(struct yaffs_DeviceStruct *dev,int chunkInNAND,
+	const __u8 *data, yaffs_Spare *spare)</FONT></FONT></P>
+	<LI><P><FONT FACE="Courier, monospace"><FONT SIZE=2>int
+	ReadChunkFromNAND(struct yaffs_DeviceStruct *dev,int chunkInNAND,
+	__u8 *data, yaffs_Spare *spare);</FONT></FONT></P>
+	<LI><P><FONT FACE="Courier, monospace"><FONT SIZE=2>int
+	EraseBlockInNAND(struct yaffs_DeviceStruct *dev,int blockInNAND);</FONT></FONT></P>
+	<LI><P><FONT FACE="Courier, monospace"><FONT SIZE=2>int
+	InitialiseNAND(struct yaffs_DeviceStruct *dev);</FONT></FONT></P>
+</UL>
+<P>In the Readxxx and Writexxx functions, the data and/or spare
+pointers may be NULL in which case these data transfers are ignored.</P>
+<P>A quick note about NAND:</P>
+<UL>
+	<LI><P>NAND is not random access, but page oriented. Thus, we do all
+	reads &amp; writes in pages.</P>
+	<LI><P>Each NAND page holds 512 bytes of data and 16 &quot;spare&quot;
+	bytes. Yaffs structures the spare area with tags used to identify
+	what is stored in the data area. There are 32 such pages to a block.</P>
+	<LI><P>NAND writes will only change 1 bits to 0. eg. if a byte holds
+	10110011 and you write 11011010 to it you will get the logical and
+	of the two values: 10010010. The only way to get 1s again is to
+	erase the entire block. 
+	</P>
+	<LI><P>You may only write to a page a few times before erasing the
+	entire block. Yaffs lives within these limitations. Each page only
+	gets written to twice (once when written and once when discarded).</P>
+	<LI><P>ECC is normally used with NAND to correct for single bit
+	errors. YAFFS applies the ECC itself, so the MTD should not do this.</P>
+	<LI><P>The current mtd interfaces are not particularly well suited
+	to YAFFS and we will address the issue with the mtd group. (The mtd
+	interface does not support page-oriented read/write which YAFFS
+	would prefer).</P>
+</UL>
+<P><BR><BR>
+</P>
+<H3>mkyaffs</H3>
+<P>mkyaffs is the tool to format a NAND mtd to be used for YAFFS.
+This is quite simple, just erase all the undamaged blocks. YAFFS
+treats erased blocks as free (empty) space.</P>
+<P><BR><BR>
+</P>
+<H2>Expected performance</H2>
+<P>The following numbers should give an indication of the performance
+we should expect from YAFFS.</P>
+<P>As an example, I'll use the following numbers. Since the hardware
+is capable of 50ns read/write, these numbers allow for some other
+ovberheads. Clearly though, the performance can be degraded in
+various ways.</P>
+<TABLE WIDTH=233 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=103>
+	<COL WIDTH=103>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">Seek</P>
+			</TH>
+			<TH WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">10uS/page</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR VALIGN=TOP>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">Read</P>
+			</TD>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">100nS/byte</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">Write</P>
+			</TD>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">100nS/byte</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">Program</P>
+			</TD>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">200uS/page</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">Erase</P>
+			</TD>
+			<TD WIDTH=103>
+				<P ALIGN=LEFT STYLE="font-style: normal">2mS/block</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>From this we can derive some higher-level numbers:</P>
+<TABLE WIDTH=706 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=204>
+	<COL WIDTH=160>
+	<COL WIDTH=304>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=204>
+				<P>Operation</P>
+			</TH>
+			<TH WIDTH=160>
+				<P>Time</P>
+			</TH>
+			<TH WIDTH=304>
+				<P>Calculation</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR VALIGN=TOP>
+			<TD WIDTH=204>
+				<P>Read spare</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>12uS</P>
+			</TD>
+			<TD WIDTH=304>
+				<P>seek + 16 * read</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=204>
+				<P>Read page</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>63 uS</P>
+			</TD>
+			<TD WIDTH=304>
+				<P>seek + 528 * read</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=204>
+				<P>Write page</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>326 uS</P>
+			</TD>
+			<TD WIDTH=304>
+				<P>seek + 528 * write + program + read page (for verification)</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=204>
+				<P>Discard page</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>212 uS</P>
+			</TD>
+			<TD WIDTH=304>
+				<P>seek + 16 * write + program</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=204>
+				<P>Overwrite page</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>538 uS</P>
+			</TD>
+			<TD WIDTH=304>
+				<P>write page + discard page</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=204>
+				<P>Erase overhead per page</P>
+			</TD>
+			<TD WIDTH=160>
+				<P>63uS</P>
+			</TD>
+			<TD WIDTH=304>
+				<P>erase/32</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>From this we can infer the following flash access times:</P>
+<TABLE WIDTH=704 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=196>
+	<COL WIDTH=167>
+	<COL WIDTH=303>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=196>
+				<P>Operation</P>
+			</TH>
+			<TH WIDTH=167>
+				<P>Time</P>
+			</TH>
+			<TH WIDTH=303>
+				<P>Calculation</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR VALIGN=TOP>
+			<TD WIDTH=196>
+				<P>Read 1MB file</P>
+			</TD>
+			<TD WIDTH=167>
+				<P>0.13s (about 7.5 MB/s)</P>
+			</TD>
+			<TD WIDTH=303>
+				<P>2000 * read page</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=196>
+				<P>Write 1MB (clean system)</P>
+			</TD>
+			<TD WIDTH=167>
+				<P>0.53s (about 1.8 MB/s)</P>
+			</TD>
+			<TD WIDTH=303>
+				<P>2000 * write page</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=196>
+				<P>Overwrite 1MB file (no gc)</P>
+			</TD>
+			<TD WIDTH=167>
+				<P>1.08s (about 0.9MB/s)</P>
+			</TD>
+			<TD WIDTH=303>
+				<P>2000 * overwrite page</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=196>
+				<P>Overwrite 1MB with 50% gc</P>
+			</TD>
+			<TD WIDTH=167>
+				<P>2.4s (about 0.4 MB/s)</P>
+			</TD>
+			<TD WIDTH=303>
+				<P>2000 * overwrite page + 2000 * page copy (== overwrite page) +
+				4000 * erase overhead</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=196>
+				<P>Delete 1MB file</P>
+			</TD>
+			<TD WIDTH=167>
+				<P>0.43s (about 2.2 MB/s)</P>
+			</TD>
+			<TD WIDTH=303>
+				<P>2000 * discard page</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=196>
+				<P>Delete 1MB file with 50% gc</P>
+			</TD>
+			<TD WIDTH=167>
+				<P>0.49s (about 2.0MB/s)</P>
+			</TD>
+			<TD WIDTH=303>
+				<P>2000 * discard page + 1000 * erase overhead</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

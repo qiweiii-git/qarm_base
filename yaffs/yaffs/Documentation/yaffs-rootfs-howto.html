@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20021126;22092300">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20021126;22222800">
+</HEAD>
+<BODY>
+<H1>Brief HOWTO on incorporating yaffs as a root fs.</H1>
+<H4>By N C Bane &lt;nick@cecomputing.co.uk&gt;</H4>
+<H3>Document status</H3>
+<P>This document is very much work in progress. It has been edited by
+different people with no attempt to keep a consistent style. Beauty
+will come with age.</P>
+<H2>What is yaffs?</H2>
+<P>Yaffs stands for Yet Another Flash Filing System.</P>
+<P>It is a journaling filesystem designed to run on NAND flash with
+special reference to embedded systems.</P>
+<P><BR><BR>
+</P>
+<H2>Why would I want to use it?</H2>
+<P>NAND flash (SmartMedia cards are repackaged raw NAND chips) is
+cheap and has a fast erase time as compared with NOR flash.</P>
+<P>The NAND physical interface is very simple.</P>
+<P>The small size and low current requirements make it very suitable
+for embedded systems.</P>
+<P>However, NAND has its problems. These are mainly due to bad block
+management as blocks of memory can be bad when the device is shipped
+and further blocks can become unusable over time.</P>
+<P>Power can die unpredictably in embedded systems leading to data
+loss and possibly file system corruption.</P>
+<P>This is where yaffs comes in; it handles bad blocks and uses
+formats which are resistant to corruption.</P>
+<P><BR><BR>
+</P>
+<H2>What do I need to know?</H2>
+<P>It is assumed that the reader has a development system with direct
+access to NAND flash (ie not a CF/SmartMedia adaptor which).</P>
+<P>The user should be familiar with building linux kernels and
+patching build trees.</P>
+<P>It is strongly suggested that you also read more about NAND flash
+on the Linux mtd site.</P>
+<P><BR><BR>
+</P>
+<H3>Assumptions:</H3>
+<P>You have already downloaded the yaffs sources from the cvs at
+Aleph1.</P>
+<P>You have mtd code that exposes NAND as an mtdblock device.</P>
+<P><BR><BR>
+</P>
+<H3>Nand interface:</H3>
+<P>For yaffs to function, it must be able to be the only code that
+writes to the oob area on the NAND device.</P>
+<P>The existing NAND driver in kernel 2.4.19 assumes that it will do
+the ecc/oob management for the host fs. For yaffs, this is quite
+wrong.</P>
+<P>You can disable ecc/oob calculations either by hand patching the
+mtd code to bypass ecc calculations or by merging the latest mtd cvs.</P>
+<P>The patches at http://www.toby-churchill.org have done the latter.</P>
+<P><BR><BR>
+</P>
+<H3>Including yaffs as a kernel fs:</H3>
+<P>1) Create [linux]/fs/yaffs directory in your kernel test source.</P>
+<P>2) Copy devextras.h yaffs_fs.c yaffs_gets.c yaffs_guts.h
+yaffs_mtdif.c yaffs_mtdif.h yaffsinterface.h and yportenv.h from the
+yaffs sources to that directory.</P>
+<P>3) Copy the Makefile from either the yaffs sources
+(Makefile.kernel) or the Balloon download site below to
+[linux]/fs/yaffs/Makefile.</P>
+<P>3) Modify [linux]/fs/Config.in to include the 3 lines</P>
+<P><BR><BR>
+</P>
+<P STYLE="margin-left: 2cm; font-weight: medium"><FONT SIZE=3>i<FONT FACE="Courier, monospace">f
+[ &quot;CONFIG_MTD_NAND&quot; = &quot;y&quot; ]; then</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; font-weight: medium"><FONT FACE="Courier, monospace"><FONT SIZE=3>
+   tristate &quot;Yaffs filesystem on NAND&quot; CONFIG_YAFFS_FS</FONT></FONT></P>
+<P STYLE="margin-left: 2cm; font-weight: medium"><FONT FACE="Courier, monospace"><FONT SIZE=3>fi</FONT></FONT></P>
+<P>4) Configure the kernel to include (not modules) all the mtd nand
+code (incl nand_ecc and mtdblock device) and yaffs fs.</P>
+<P><BR><BR>
+</P>
+<P>You should now be able to build a kernel with yaffs as a root fs
+using the normal tools.</P>
+<P><BR><BR>
+</P>
+<H3>Creating a bootable yaffs partition:</H3>
+<P>You can</P>
+<P>1) Create the partition by mounting it from a running linux os and
+copying the data there. The mkyaffs utility in the yaffs source
+simply erases a NAND mtdblock device without removing bad block data.</P>
+<P>2) Make and download a filesystem image. The mkyaffsimage utility
+that came with the sources will create a YAFFS block list in a file
+from a root tree. This is a list of 512+16 byte blocks that need to
+be placed (in any order) on a NAND device.</P>
+<P>You will need to write code to copy these data blocks and add in
+the block numbers in the oob areas.</P>
+<P>Examples of a modified handhelds.org bootldr for the Balloon board
+can be found on the toby-churchill.org website.</P>
+<P><BR><BR>
+</P>
+<H3>Booting into yaffs:</H3>
+<P>Modify your bootloader to pass a  command line to linux to
+specifying the mtdblock/n that refers to the root partition.</P>
+<P><BR><BR>
+</P>
+<H3>Further Information:</H3>
+<P>Yaffs page at Aleph1
+http://www.aleph1.co.uk/armlinux/projects/yaffs/index.html</P>
+<P>Balloon page at http://www.toby-churchill.org.uk</P>
+<P>Yaffs mailing list - to join send an email to
+yaffs-request@toby-churchill.org with the text &quot;subscribe&quot;
+(no quotes) as the subject</P>
+<P>Linux MTD http://www.linux-mtd.infradead.org/</P>
+<P>$Id: yaffs-rootfs-howto.html,v 1.1 2002/11/26 09:32:08 charles Exp $</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

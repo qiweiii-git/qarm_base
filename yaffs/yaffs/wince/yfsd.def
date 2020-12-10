@@ -1,0 +1,37 @@
+LIBRARY      YFSD
+   DESCRIPTION      'YAFFS for Windows CE'
+
+EXPORTS
+   YFSD_MountDisk
+   YFSD_UnmountDisk
+   FSD_MountDisk=YFSD_MountDisk
+   FSD_UnmountDisk=YFSD_UnmountDisk
+   YFSD_CreateDirectoryW
+   YFSD_RemoveDirectoryW
+   YFSD_GetFileAttributesW
+   YFSD_SetFileAttributesW
+   YFSD_DeleteFileW
+   YFSD_MoveFileW
+   YFSD_DeleteAndRenameFileW
+   YFSD_GetDiskFreeSpaceW
+   YFSD_Notify
+   YFSD_RegisterFileSystemFunction
+   YFSD_FindFirstFileW
+   YFSD_FindNextFileW
+   YFSD_FindClose
+   YFSD_CreateFileW
+   YFSD_ReadFile
+   YFSD_ReadFileWithSeek
+   YFSD_WriteFile
+   YFSD_WriteFileWithSeek
+   YFSD_SetFilePointer
+   YFSD_GetFileSize
+   YFSD_GetFileInformationByHandle
+   YFSD_FlushFileBuffers
+   YFSD_GetFileTime
+   YFSD_SetFileTime
+   YFSD_SetEndOfFile
+   YFSD_DeviceIoControl
+   YFSD_CloseFile
+   YFSD_CloseVolume
+

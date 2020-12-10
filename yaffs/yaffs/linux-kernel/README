@@ -1,0 +1,9 @@
+To build YAFFS in the Linux kernel tree you need to run the patch-in-yaffs
+script.
+
+After you've run the script, go back to your normal kernel making procedure
+and configure the yaffs settings you want.
+
+Prolems? Contact the yaffs mailing list.
+
+$Id: README,v 1.2 2005/04/06 01:03:46 charles Exp $

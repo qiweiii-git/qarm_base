@@ -1,0 +1,58 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20021129;9042700">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20030508;6083900">
+</HEAD>
+<BODY>
+<H1>Example YAFFS Bootloader</H1>
+<H3>Licensing</H3>
+<P>The YAFFS bootloader is LGPL to facilitate integration into
+non-GPL code.</P>
+<H3>Software Modules</H3>
+<P>The software is designed in a modular fashion to facilitate
+integration and configuration.</P>
+<P>The software comprises the following main sections:</P>
+<UL>
+	<LI><P>yaffs_flashif.c NAND integration functions (to be completed
+	by integrator).</P>
+	<LI><P>yaffs_ecc.c: The ECC algorithms.</P>
+	<LI><P>yboot.c: Bootloader code to provide a file as a stream of
+	bytes in the bootloader.</P>
+</UL>
+<UL>
+	<LI><P>bootldtst.c: Test harness/example for bootloader.</P>
+</UL>
+<P>The bootloader does not implement YAFFS. Instead it is a simple
+set of routines which allows reading a file on a YAFFS device.</P>
+<P>The file must be in the root directory of the device (eg.
+&quot;/boot/boot.bin&quot;) since the bootloader does not understand
+directories. This limitation simplifies the bootloader and speeds up
+the boot process.</P>
+<P>As shown here the bootloader is initialised, then provides the
+boot file as a stream of bytes. It is simple enough to provide the
+data in other formats.</P>
+<P>$Id: yaffs_boot.html,v 1.2 2003/05/20 22:30:36 charles Exp $</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

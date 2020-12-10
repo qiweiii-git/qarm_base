@@ -1,0 +1,830 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20021004;15061000">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20030906;14584300">
+</HEAD>
+<BODY>
+<H1>YAFFS2</H1>
+<H4>Summary</H4>
+<P>The original motivation for YAFFS 2 was to add support for the new
+NAND with 2kB pages instead of 512-byte pages and strictly sequential
+page writing order. 
+</P>
+<P>To achieve this, a new design is used which also realises the
+following benefits:</P>
+<UL>
+	<LI><P>zero page rewrites, which means faster operation. (YAFFS1
+	uses a single rewrite in the spare area to delete a page).</P>
+	<LI><P>ability to exploit simultaneous page programming on some
+	chips.</P>
+	<LI><P>improves performance relative to YAFFS1 speed(write:1.5x to
+	5x, delete: 4x, garbage collection: 2x)</P>
+	<LI><P>lower RAM footprint (approx. 25% to 50% of YAFFS1, depending
+	on chunk size used).</P>
+	<LI><P>Can support Toshiba/Sandisk MLC parts.</P>
+	<LI><P>Runtime selection between various chunk sizes.</P>
+</UL>
+<P>Most of YAFFS and YAFFS2 code is common, therefore the code will
+likely be kept common with YAFFS vs YAFFS2 being run-time selected.</P>
+<H4>Method</H4>
+<P>The main philosophical difference between YAFFS and YAFFS2 is how
+discarded status is tracked. Since we can't do any re-writing, we
+can't use the &quot;discarded&quot; flags in YAFFS2.</P>
+<P>Instead YAFFS2 uses two mechanisms to resolve data state.</P>
+<UL>
+	<LI><P>YAFFS2 chunks have more tag information, including a block
+	sequence Id. From that we can determine the chunk sequence Id since
+	the chunks are allocated sequentially in a block. Thus we always
+	know the patch order for all chunks in the system.</P>
+	<LI><P>The above helps us track stale -vs- fresh data, but does not
+	help determine when a file/object is deleted. Deletion is achieved
+	by moving the object to the &quot;unlinked&quot; directory. We also
+	keep track of the number of chunks (both stale and current) in the
+	system for each object. While this number indicates that there are
+	still chunks associated with this object we keep the deletion
+	record. When the last trace of the object has been really erased
+	from NAND, we can forget about the deletion record too. 
+	</P>
+	<LI><P>Since there is no deletion, a resize (shrinking) of a file
+	will still have valid data chunks past the end of file on the NAND.
+	However, we write a new ObjectHeader at the time of the resize,
+	therefore this shows the shrunken file size. The ObjectHeader also
+	carries information to say that this is a shrink, for some special
+	handling in the garbage collector.</P>
+</UL>
+<P><BR><BR>
+</P>
+<P>This changes erasure slightly:</P>
+<UL>
+	<LI><P>During garbage collection we can't just look at chunk state
+	flags, instead we must read the tags of each chunk to determine
+	which object's chunk count we must decrement. This step must also be
+	performed when a block is erased (as part of deletion). This is
+	already done in YAFFS by<I> soft deletion.</I></P>
+</UL>
+<P>This makes erasure &amp; garbage collection more expensive (by
+adding reads), but remember that ion YAFFS2 we don't need to do page
+deletions which are much more expensive operations. Thus, all-up
+YAFFS2 wins.</P>
+<H4>Resize Handling</H4>
+<P>In YAFFS, soft deletion is ued for everything but resizing
+(shrinking) a file which has some particularly ugly cases that can
+complicate garbage collection.</P>
+<P>As mentioned before, we write a new ObjectHeader to indicate the
+shrinking.  However, it is important that this ObjectHeader does not
+get destroyed (erased) before the data chunks that were discarded
+during the shrink are destroyed (erased). If this precaution is not
+taken then it is possible that the deleted chunks might be brought
+back to life.</P>
+<P>The modification to the garbage collector is as follows:</P>
+<UL>
+	<LI><P>The block info flags are expanded as follows:</P>
+	<LI><P>containsShrinkObjectHeader: Indicates that one or more of the
+	chunks in the block are object headers to indicate a file shrink.</P>
+	<LI><P>containsShrinkDataChunks: Indicates that one or more of the
+	chunks in the block are data chunks discarded by a file shrink.</P>
+</UL>
+<UL>
+	<LI><P>Before we allow a block with containsShrinkObjectHeader set
+	to be erased (garbage collected), we must first ensure that all the
+	earlier blocks (ie according to the block sequence number) that have
+	containsShrinkDataChunks set are erased (garbage collected) which
+	ensures that the shrunk data chunks are deleted. The mechanisms to
+	do this are as follows:</P>
+	<LI><P>If the garbage collector attempts to select a block with
+	containsShrinkObjectHeader set, we check that the above criterion in
+	met before selecting the block.</P>
+	<LI><P>Periodically select the oldest block with
+	containsShrinkDataChunks for garbage collection.</P>
+</UL>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<H4>Tag structure</H4>
+<P>Each chunk in YAFFS2 has the following information:</P>
+<TABLE WIDTH=100% BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=45*>
+	<COL WIDTH=83*>
+	<COL WIDTH=64*>
+	<COL WIDTH=64*>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=18%>
+				<P>Field</P>
+			</TH>
+			<TH WIDTH=32%>
+				<P>Comment</P>
+			</TH>
+			<TH WIDTH=25%>
+				<P>Size for 1kb chunks</P>
+			</TH>
+			<TH WIDTH=25%>
+				<P>Size for 2kB chunks</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>blockState</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>Block state. non-0xFF for bad block</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>1 byte</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>1 byte</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>chunkId</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>32-bit chunk Id</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>4 bytes</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>4 bytes</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>objectId</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>32-bit object Id</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>4 bytes</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>4 bytes</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>nBytes</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>Number of data bytes in this chunk</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>2 bytes</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>2 bytes</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>blockSequence</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>sequence number for this block</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>4 bytes</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>4 bytes</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>tagsEcc</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>ECC on tags area</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>3 bytes</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>3 bytes</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P>ecc</P>
+			</TD>
+			<TD WIDTH=32%>
+				<P>ECC, 3 bytes/256 bytes of data</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>12 bytes</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P>24 bytes</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=18%>
+				<P><B>Total</B></P>
+			</TD>
+			<TD WIDTH=32%>
+				<P><BR>
+				</P>
+			</TD>
+			<TD WIDTH=25%>
+				<P ALIGN=LEFT><B>30 bytes</B></P>
+			</TD>
+			<TD WIDTH=25%>
+				<P><B>42 bytes</B></P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>To get enough spare bytes for this tagging structure requires a
+chunk-size of at least 1kB. YAFFS1 is still used for 512-byte chunk
+sizes.</P>
+<P>The blockSequence increments each time a block is allocated. (ie.
+the first block allocated is block 1, and so on).</P>
+<H4>Scanning</H4>
+<P>The only reason we need to keep track of data status on NAND is to
+be able to recreate the file system state during scanning. Since we
+no longer have chunk deletion status flags we use a slightly
+different process for scanning a YAFFS2 system.</P>
+<P>In effect, YAFFS2 recreates its state by &quot;replaying the
+tape&quot;. ie. it scans the chunks in their allocation order (block
+sequence Id order) rather than in their order on the media. This
+implies that at start up, the blocks must be read and their block
+sequence determined.</P>
+<H4>Performance</H4>
+<P>These numbers are indicative of relative performance. These only
+apply to the NAND data transfer and do not include other overheads.</P>
+<P>As an example, read/write cycle times of 100nS are used (though
+NAND can typically do 50nS), &quot;seek time&quot; of 10uS and
+program time of 200uS. Mileage will vary.</P>
+<P>NB x16 means using a 16-bit bus. Clearly this cuts down on data
+transfer time relative to an 8-bit bus.</P>
+<P>Times for 2kB read(units of 1uS).</P>
+<TABLE WIDTH=937 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=175>
+	<COL WIDTH=176>
+	<COL WIDTH=177>
+	<COL WIDTH=176>
+	<COL WIDTH=173>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=175>
+				<P>Operation</P>
+			</TH>
+			<TH WIDTH=176>
+				<P>YAFFS1</P>
+			</TH>
+			<TH WIDTH=177>
+				<P>YAFFS2 (512b pages)</P>
+			</TH>
+			<TH WIDTH=176>
+				<P>YAFFS2 (2kB pages)</P>
+			</TH>
+			<TH WIDTH=173>
+				<P>YAFFS2(2kB pages, x16)</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR>
+			<TD WIDTH=175 VALIGN=TOP>
+				<P>Seek 
+				</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="40" SDNUM="5129;">
+				<P ALIGN=RIGHT>40</P>
+			</TD>
+			<TD WIDTH=177 VALIGN=BOTTOM SDVAL="40" SDNUM="5129;">
+				<P ALIGN=RIGHT>40</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+			<TD WIDTH=173 VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=175 VALIGN=TOP>
+				<P>Read</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="220" SDNUM="5129;">
+				<P ALIGN=RIGHT>220</P>
+			</TD>
+			<TD WIDTH=177 VALIGN=BOTTOM SDVAL="220" SDNUM="5129;">
+				<P ALIGN=RIGHT>220</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="220" SDNUM="5129;">
+				<P ALIGN=RIGHT>220</P>
+			</TD>
+			<TD WIDTH=173 VALIGN=BOTTOM SDVAL="110" SDNUM="5129;">
+				<P ALIGN=RIGHT>110</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=175 VALIGN=TOP>
+				<P>Total</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="260" SDNUM="5129;">
+				<P ALIGN=RIGHT>260</P>
+			</TD>
+			<TD WIDTH=177 VALIGN=BOTTOM SDVAL="260" SDNUM="5129;">
+				<P ALIGN=RIGHT>260</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="230" SDNUM="5129;">
+				<P ALIGN=RIGHT>230</P>
+			</TD>
+			<TD WIDTH=173 VALIGN=BOTTOM SDVAL="120" SDNUM="5129;">
+				<P ALIGN=RIGHT>120</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=175 VALIGN=TOP>
+				<P>MB/s</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="7.6" SDNUM="5129;">
+				<P ALIGN=RIGHT>7.6</P>
+			</TD>
+			<TD WIDTH=177 VALIGN=BOTTOM SDVAL="7.6" SDNUM="5129;">
+				<P ALIGN=RIGHT>7.6</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="8.7" SDNUM="5129;">
+				<P ALIGN=RIGHT>8.7</P>
+			</TD>
+			<TD WIDTH=173 VALIGN=BOTTOM SDVAL="16.7" SDNUM="5129;">
+				<P ALIGN=RIGHT>16.7</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=175 VALIGN=TOP>
+				<P>Relative speed</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=177 VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=176 VALIGN=BOTTOM SDVAL="1.1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1.1</P>
+			</TD>
+			<TD WIDTH=173 VALIGN=BOTTOM SDVAL="2.2" SDNUM="5129;">
+				<P ALIGN=RIGHT>2.2</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>Times for 2kB writes(units of 1uS).</P>
+<TABLE WIDTH=100% BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=20%>
+				<P>Operation</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS1</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2 (512b pages)</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2 (2kB pages)</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2(2kB pages, x16)</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Seek</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="40" SDNUM="5129;">
+				<P ALIGN=RIGHT>40</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="40" SDNUM="5129;">
+				<P ALIGN=RIGHT>40</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Program</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="800" SDNUM="5129;">
+				<P ALIGN=RIGHT>800</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="800" SDNUM="5129;">
+				<P ALIGN=RIGHT>800</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="200" SDNUM="5129;">
+				<P ALIGN=RIGHT>200</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="200" SDNUM="5129;">
+				<P ALIGN=RIGHT>200</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Seek</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="40" SDNUM="5129;">
+				<P ALIGN=RIGHT>40</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="40" SDNUM="5129;">
+				<P ALIGN=RIGHT>40</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Read</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="220" SDNUM="5129;">
+				<P ALIGN=RIGHT>220</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="220" SDNUM="5129;">
+				<P ALIGN=RIGHT>220</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="220" SDNUM="5129;">
+				<P ALIGN=RIGHT>220</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="110" SDNUM="5129;">
+				<P ALIGN=RIGHT>110</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Total</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1320" SDNUM="5129;">
+				<P ALIGN=RIGHT>1320</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1320" SDNUM="5129;">
+				<P ALIGN=RIGHT>1320</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="660" SDNUM="5129;">
+				<P ALIGN=RIGHT>660</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="440" SDNUM="5129;">
+				<P ALIGN=RIGHT>440</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>MB/s</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1.5" SDNUM="5129;">
+				<P ALIGN=RIGHT>1.5</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1.5" SDNUM="5129;">
+				<P ALIGN=RIGHT>1.5</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="3" SDNUM="5129;">
+				<P ALIGN=RIGHT>3</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="4.5" SDNUM="5129;">
+				<P ALIGN=RIGHT>4.5</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Relative speed</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="2" SDNUM="5129;">
+				<P ALIGN=RIGHT>2</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="3" SDNUM="5129;">
+				<P ALIGN=RIGHT>3</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>Times for 1MB delete (units of 1uS).</P>
+<TABLE WIDTH=100% BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=20%>
+				<P>Operation</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS1</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2 (512b pages)</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2 (2kB pages)</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2(2kB pages, x16)</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Seek</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="20480" SDNUM="5129;">
+				<P ALIGN=RIGHT>20480</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Program</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="409600" SDNUM="5129;">
+				<P ALIGN=RIGHT>409600</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="0" SDNUM="5129;">
+				<P ALIGN=RIGHT>0</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Erase</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="128000" SDNUM="5129;">
+				<P ALIGN=RIGHT>128000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="128000" SDNUM="5129;">
+				<P ALIGN=RIGHT>128000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="16000" SDNUM="5129;">
+				<P ALIGN=RIGHT>16000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="16000" SDNUM="5129;">
+				<P ALIGN=RIGHT>16000</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Total</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="558080" SDNUM="5129;">
+				<P ALIGN=RIGHT>558080</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="128000" SDNUM="5129;">
+				<P ALIGN=RIGHT>128000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="16000" SDNUM="5129;">
+				<P ALIGN=RIGHT>16000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="16000" SDNUM="5129;">
+				<P ALIGN=RIGHT>16000</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>MB/s</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1.8" SDNUM="5129;">
+				<P ALIGN=RIGHT>1.8</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="7.8" SDNUM="5129;">
+				<P ALIGN=RIGHT>7.8</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="62.5" SDNUM="5129;">
+				<P ALIGN=RIGHT>62.5</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="62.5" SDNUM="5129;">
+				<P ALIGN=RIGHT>62.5</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Relative speed</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="4" SDNUM="5129;">
+				<P ALIGN=RIGHT>4</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="34" SDNUM="5129;">
+				<P ALIGN=RIGHT>34</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="34" SDNUM="5129;">
+				<P ALIGN=RIGHT>34</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>Times for 1MB of garbage collection at 50% dirty (units of 1uS).</P>
+<TABLE WIDTH=100% BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<COL WIDTH=51*>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=20%>
+				<P>Operation</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS1</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2 (512b pages)</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2 (2kB pages)</P>
+			</TH>
+			<TH WIDTH=20%>
+				<P>YAFFS2(2kB pages, x16)</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Delete 1MB</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="558080" SDNUM="5129;">
+				<P ALIGN=RIGHT>558080</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="128000" SDNUM="5129;">
+				<P ALIGN=RIGHT>128000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="16000" SDNUM="5129;">
+				<P ALIGN=RIGHT>16000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="16000" SDNUM="5129;">
+				<P ALIGN=RIGHT>16000</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Write 0.5MB</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="337920" SDNUM="5129;">
+				<P ALIGN=RIGHT>337920</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="337920" SDNUM="5129;">
+				<P ALIGN=RIGHT>337920</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="168960" SDNUM="5129;">
+				<P ALIGN=RIGHT>168960</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="112640" SDNUM="5129;">
+				<P ALIGN=RIGHT>112640</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Total</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="896000" SDNUM="5129;">
+				<P ALIGN=RIGHT>896000</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="465920" SDNUM="5129;">
+				<P ALIGN=RIGHT>465920</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="184960" SDNUM="5129;">
+				<P ALIGN=RIGHT>184960</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="128640" SDNUM="5129;">
+				<P ALIGN=RIGHT>128640</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>MB/s</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1.1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1.1</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="2.1" SDNUM="5129;">
+				<P ALIGN=RIGHT>2.1</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="5.4" SDNUM="5129;">
+				<P ALIGN=RIGHT>5.4</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="7.7" SDNUM="5129;">
+				<P ALIGN=RIGHT>7.7</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=20% VALIGN=TOP>
+				<P>Relative speed</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1" SDNUM="5129;">
+				<P ALIGN=RIGHT>1</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="1.9" SDNUM="5129;">
+				<P ALIGN=RIGHT>1.9</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="4.9" SDNUM="5129;">
+				<P ALIGN=RIGHT>4.9</P>
+			</TD>
+			<TD WIDTH=20% VALIGN=BOTTOM SDVAL="7" SDNUM="5129;">
+				<P ALIGN=RIGHT>7</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<H2>MTD Interface</H2>
+<P>As mentioned before, YAFFS2 requires a chunk-size of at least 1kB
+to get a large enough spare area to support the increased size of the
+tags. This is not really a disadvantage, but should rather be viewed
+as an opportunity to exploit the NAND hardware more effectively. In
+particular:</P>
+<UL>
+	<LI><P>Newer, larger, NAND with 2kB pages can be used in chunks of
+	2kB. Keeping the relationship of one chunk per page improves
+	robustness and performance (rather than say trying to &quot;fake&quot;
+	512byte pages). A block comprises 64x2kB pages.</P>
+	<LI><P>Some devices have 512byte pages, but are arranged as multiple
+	&quot;bit planes&quot; which can be programmed and erased in
+	parallel. For example, the Samsung K9K1G08U0M can support 4
+	simultaneous operations. YAFFS2 can exploit this by using 2kB chunks
+	by using groups of 4 pages - one on each bitplane. Virtual blocks
+	would be built which comprise 32x2kB chunks.</P>
+</UL>
+<P>To this end, yaffs_guts is being re-crafted to support arbitrary
+chunk size (power of 2, &gt;= 1024), with arbitrary block size.</P>
+<P>Currently, YAFFS also makes some other assumptions which will need
+to be changed:</P>
+<UL>
+	<LI><P>Spare layout. Might need to be changed. This is relatively
+	simple to shuffle around.</P>
+	<LI><P>Bad block detection. Currently YAFFS uses the SmartMedia
+	detection (checks first two pages for bad block markers). Needs to
+	be more flexible. eg. Sandisk/Toshiba MLC parts mark the last two
+	pages in a block.</P>
+	<LI><P>ECC was on this list, but now seems flexible enough. Thanx
+	Thomas.</P>
+</UL>
+<P>Some of these differences can be absorbed in the yaffs_mtd layer.
+Some will need to be handles inside the mtd itself.</P>
+<P>$Id: yaffs2.html,v 1.3 2003/09/16 06:48:38 charles Exp $</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

@@ -1,0 +1,504 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20011219;22024300">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20020128;21063000">
+</HEAD>
+<BODY>
+<H1 ALIGN=CENTER>YAFFS (yet another Flash File System)</H1>
+<H4 ALIGN=LEFT>Version 0.3<BR>Charles Manning (and Wookey), December 2001</H4>
+<P ALIGN=LEFT><BR><BR>
+</P>
+<H2>Revision History</H2>
+<TABLE WIDTH=548 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=88>
+	<COL WIDTH=72>
+	<COL WIDTH=350>
+	<THEAD>
+		<TR>
+			<TH WIDTH=88 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">V0.0</P>
+			</TH>
+			<TH WIDTH=72 VALIGN=BOTTOM SDVAL="37245" SDNUM="5129;0;D/MM/YY">
+				<P ALIGN=LEFT STYLE="font-style: normal">20/12/01</P>
+			</TH>
+			<TH WIDTH=350 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">First draft</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR>
+			<TD WIDTH=88 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">V0.1</P>
+			</TD>
+			<TD WIDTH=72 VALIGN=BOTTOM SDVAL="37267" SDNUM="5129;0;D/MM/YY">
+				<P ALIGN=LEFT STYLE="font-style: normal">11/01/02</P>
+			</TD>
+			<TD WIDTH=350 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">Minor corrections &amp;
+				cosmetics.<BR>Change use of data status byte.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=88 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">V0.2</P>
+			</TD>
+			<TD WIDTH=72 VALIGN=BOTTOM SDVAL="37284" SDNUM="5129;0;D/MM/YY">
+				<P ALIGN=RIGHT STYLE="font-style: normal">28/01/02</P>
+			</TD>
+			<TD WIDTH=350 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">Added observations about
+				inodes, file headers and hard links.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=88 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">V0.3</P>
+			</TD>
+			<TD WIDTH=72 VALIGN=BOTTOM SDVAL="37285" SDNUM="5129;0;D/MM/YY">
+				<P ALIGN=RIGHT STYLE="font-style: normal">26/02/02</P>
+			</TD>
+			<TD WIDTH=350 VALIGN=TOP>
+				<P ALIGN=LEFT STYLE="font-style: normal">W:Added some general 
+				observations on compatibility, partitions and bootloading.</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P ALIGN=LEFT><BR><BR>
+</P>
+<H2>Scope</H2>
+<P>The purpose of this document is to outline a potential
+NAND-friendly file system for Linux.</P>
+<H2>Background</H2>
+<P>There are already various flash-file systems (FFSs) or block
+drivers for flash (on top of which a regular FS runs). There are pros
+and cons with all of these. 
+</P>
+<P>Flash memory has quite a few constraints which will not be
+addressed here. Various approaches are available to work around these
+constraints to provide a file system. It is important to recognise
+that &quot;flash&quot; includes both NOR and NAND flash which have
+different sets of constraints. It is easy to be mislead by the
+generic term &quot;flash&quot; into thinking that approaches
+appropriate for NOR flash are immediately suitable for NAND flash.</P>
+<P>The NAND block drivers (eg. SmartMedia [currently not available
+for Linux] and DiskOnChip NFTL) typically use FAT16 as the file
+system. This isn't too robust and nor is it that flash-friendly.
+These block drivers provide a logical to physical mapping layer to
+emulate rewritable blocks that look like disk sectors. When used with
+FAT16, these file systems work reasonably well. They have a low
+memory footprint and scale well. Like all FAT based systems they are
+prone to corruption (&quot;lost clusters etc&quot;).</P>
+<P>The other approach is to design an entire file system which does
+not work through a block driver layer and is flash-friendly. This
+allows more scope to work around issues.</P>
+<P>Currently, two Linux file systems that support NOR flash very well
+are JFFS and its derivative JFFS2. Both of these are based on the
+principles of journaling (hence the leading J) which significantly
+increases robustness - a particularly important feature in embedded
+systems. Unfortunately neither of these file systems scale
+particularly well in both boot time and RAM usage. Scaling is
+particularly relevant when one considers that a 16MB NOR array would
+be considered large while a 128MB NAND is available as a single chip.</P>
+<P>JFFS requires a RAM-based jffs_node structure for each journalling
+node in the flash. Each of these nodes is 48 bytes. JFFS2 makes a
+significant improvement here by reducing the equivalent structure
+(jffs2_raw_node_ref) to 16 bytes. Still, at say an average node-size
+of 512 bytes, a 128MB NAND might need 250000 of these ... 4MB!</P>
+<P>Both JFFS and JFFS2 require scanning the flash array at boot time
+to find the journaling nodes and determine the file structures. Since
+NAND is large, slow, serially accessed and needs ECC this does not
+scale well and will take an unacceptably long boot time for the
+target systems. As a thumb-suck, the scanning of a 128MB NAND array
+might take approx 25 seconds.</P>
+<P>The intentions of the design sketched here are:</P>
+<UL>
+	<LI><P>Be NAND-flash friendly.</P>
+	<LI><P>Robustness through journaling strategies.</P>
+	<LI><P>Significantly reduce the RAM overheads and boot times
+	associated with JFFSx.</P>
+</UL>
+<p>This FS is intended primarily for internal NAND rather than removable NAND
+(SM cards). On removable SM cards Smartmedia compatibility is likely to be
+important so SM/FAT will normally be used, although of course YAFFS makes a
+lot of sense if reliability is more important than compatibility.</p>
+
+<H2>Overview</H2>
+<P>Here follows a simplified overview of YAFFS.</P>
+<P>YAFFS uses a physical flash format similar to SmartMedia. This is
+done for various reasons:</P>
+<UL>
+	<LI><P>Some of the formatting, eg placement of bad block markers is
+	determined by the NAND manufacturers and can't be changed.</P>
+	<LI><P>Potential to reuse code.</P>
+	<LI><P>If it ain't broke don't fix.</P>
+</UL>
+<P>Some of the fields are obviously different to reflect the
+different usage. Despite the similarities YAFFS is not actually compatible
+with SM/FAT. SM cards need to be reformatted to switch from using SM/FAT to
+YAFFS or vice versa.</P>
+<P>File data is stored in fixed size &quot;chunks&quot; consistent
+with the size of a page (ie. 512 bytes). Each page is marked with a
+file id and chunk number. These tags are stored in the &quot;spare
+data&quot; region of the flash. The chunk number is determined by
+dividing the file position by the chunk size.</P>
+<P>When data in a file is overwritten, the relevant chunks are
+replaced by writing new pages to flash containing the new data but
+the same tags. The overwritten data is marked as &quot;discarded&quot;.
+</P>
+<P>File &quot;headers&quot; are stored as a single page, marked so as
+to be differentiated from data pages.</P>
+<P>Pages are also marked with a short (2 bit) serial number that
+increments each time the page at this position is incremented. The
+reason for this is that if power loss/crash/other act of demonic
+forces happens before the replaced page is marked as discarded, it is
+possible to have two pages with the same tags. The serial number is
+used to arbitrate.</P>
+<P>A block containing only discarded pages (termed a <I>dirty block</I>)
+is an obvious candidate for garbage collection. Otherwise valid pages
+can be copied off a block thus rendering the whole block discarded
+and ready for garbage collection.</P>
+<P>In theory you don't need to hold the file structure in RAM... you
+could just scan the whole flash looking for pages when you need them.
+In practice though you'd want better file access times than that! The
+mechanism proposed here is to have a list of __u16 page addresses
+associated with each file. Since there are 2<SUP>18</SUP> pages in a
+128MB NAND, a __u16 is insufficient to uniquely identify a page but
+is does identify a group of 4 pages - a small enough region to search
+exhaustively. This mechanism is clearly expandable to larger NAND
+devices - within reason. The RAM overhead with this approach is
+approx 2 bytes per page - 512kB of RAM for a whole 128MB NAND.</P>
+<P>Boot-time scanning to build the file structure lists should
+require just one pass reading NAND. Since only the the spare data
+needs to be read, this should be relatively fast ( approx 3 seconds
+for 128MB). Improvements can be achieved by partitioning the NAND.
+ie. mount the critical partition first then mount the data partition
+afterwards.</P>
+<P>Various runtime improvements can be achieved by changing the
+&quot;chunk size&quot; to 1024 bytes or more. However this would
+likely reduce flash efficiency. As always, life is a compromise....</P>
+<P><BR><BR>
+</P>
+<H3>Spare area details</H3>
+<P>The following table summarizes the layout of the spare area of
+each page.</P>
+<TABLE WIDTH=674 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=96>
+	<COL WIDTH=249>
+	<COL WIDTH=291>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=96>
+				<P>Byte #</P>
+			</TH>
+			<TH WIDTH=249>
+				<P>SmartMedia usage</P>
+			</TH>
+			<TH WIDTH=291>
+				<P>YAFFS usage</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR VALIGN=TOP>
+			<TD WIDTH=96>
+				<P>0..511</P>
+			</TD>
+			<TD WIDTH=249>
+				<P>Data</P>
+			</TD>
+			<TD WIDTH=291>
+				<P>Data. either file data or file header depending on tags</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=96>
+				<P>512..515</P>
+			</TD>
+			<TD WIDTH=249>
+				<P>Reserved</P>
+			</TD>
+			<TD WIDTH=291>
+				<P>Tags</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=96 VALIGN=BOTTOM SDVAL="516" SDNUM="5129;">
+				<P ALIGN=RIGHT>516</P>
+			</TD>
+			<TD WIDTH=249 VALIGN=TOP>
+				<P>Data status byte. Not used in SM code from Samsung</P>
+			</TD>
+			<TD WIDTH=291 VALIGN=TOP>
+				<P>Data status byte. If more than 4 bits are zero, then this page
+				is discarded.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=96 VALIGN=BOTTOM SDVAL="517" SDNUM="5129;">
+				<P ALIGN=RIGHT>517</P>
+			</TD>
+			<TD WIDTH=249 VALIGN=TOP>
+				<P>Block status byte</P>
+			</TD>
+			<TD WIDTH=291 VALIGN=TOP>
+				<P>Block status byte</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=96>
+				<P ALIGN=LEFT>518..519</P>
+			</TD>
+			<TD WIDTH=249>
+				<P>Block address</P>
+			</TD>
+			<TD WIDTH=291>
+				<P>Tags</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=96>
+				<P ALIGN=LEFT>520..522</P>
+			</TD>
+			<TD WIDTH=249>
+				<P>ECC on second 256 bytes part of data</P>
+			</TD>
+			<TD WIDTH=291>
+				<P>ECC on second 256 bytes of data</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=96>
+				<P ALIGN=LEFT>523..524</P>
+			</TD>
+			<TD WIDTH=249>
+				<P>Block address</P>
+			</TD>
+			<TD WIDTH=291>
+				<P>Tags</P>
+			</TD>
+		</TR>
+		<TR VALIGN=TOP>
+			<TD WIDTH=96>
+				<P ALIGN=LEFT>525..527</P>
+			</TD>
+			<TD WIDTH=249>
+				<P>ECC on first 256 bytes part of data</P>
+			</TD>
+			<TD WIDTH=291>
+				<P>ECC on first 256 bytes part of data</P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>The block status is a reserved value that shows whether the block
+is damaged.</P>
+<P>The data status tracks whether the page is valid. If less than 4
+bits are zero, then the page is valid otherwise it is discarded.</P>
+<P>There are 8 bytes (64 bits) for use by YAFFS tags. This is
+partitioned as follows:</P>
+<TABLE WIDTH=596 BORDER=1 CELLPADDING=4 CELLSPACING=3>
+	<COL WIDTH=146>
+	<COL WIDTH=423>
+	<THEAD>
+		<TR VALIGN=TOP>
+			<TH WIDTH=146>
+				<P>Number of bits</P>
+			</TH>
+			<TH WIDTH=423>
+				<P>Usage</P>
+			</TH>
+		</TR>
+	</THEAD>
+	<TBODY>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="18" SDNUM="5129;">
+				<P ALIGN=RIGHT>18</P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P>18-bit file id. ie. Limit of 2<SUP>18</SUP> (over 260000)
+				files. File id 0 is not valid and indicates a deleted page. File
+				Id 0x3FFFF i is also not valid.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="2" SDNUM="5129;">
+				<P ALIGN=RIGHT>2</P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P ALIGN=LEFT>2-bit serial number.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="20" SDNUM="5129;">
+				<P ALIGN=RIGHT>20</P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P>20-bit page id within file. Limit of 2<SUP>20</SUP> pages per
+				file. ie. over 500MB file max size. Page id 0 means the file
+				header for this file.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="10" SDNUM="5129;">
+				<P ALIGN=RIGHT>10</P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P>10-bit counter of the number of bytes used in the page.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="12" SDNUM="5129;">
+				<P ALIGN=RIGHT>12</P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P>12-bit ECC on tags.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="2" SDNUM="5129;">
+				<P ALIGN=RIGHT>2</P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P>Unused. Keep as 1.</P>
+			</TD>
+		</TR>
+		<TR>
+			<TD WIDTH=146 VALIGN=BOTTOM SDVAL="64" SDNUM="5129;">
+				<P ALIGN=RIGHT><B>64</B></P>
+			</TD>
+			<TD WIDTH=423 VALIGN=TOP>
+				<P><B>Total</B></P>
+			</TD>
+		</TR>
+	</TBODY>
+</TABLE>
+<P><BR><BR>
+</P>
+<P>A bit of explanation on the usage of some of these fields:</P>
+<P>file Id is synonymous with inode.</P>
+<P>The serial number is incremented each time a page with the same
+file_id:page_id is rewritten (because of data changes or copy during
+garbage collection). When a page is replaced, there is a brief period
+during which there are two pages with the same id. The serial number
+resolves this. Since there should never be a difference of less than
+more than one, a two-bit counter is sufficient to determine which is
+the current page.</P>
+<P>When the page is rewritten, the file id, these data status byte
+and the 12-bit ECC are all written to zero.</P>
+<P>The byte counter indicates how many bytes are valid in this page.
+Since the page would not exist if it contains zero bytes, this field
+should thus hold 512 for all pages except the last page in the file.
+The use of counters means that the file length integrity is preserved
+while the file is open without having to constantly update the file
+length in the file header. The file header only needs to be refreshed
+when the file is closed (rather than whenever it is appended to).
+This field is wide enough to allow expansion to 1024-byte &quot;chunks&quot;.</P>
+<P>File &quot;headers&quot; come in two flavours:</P>
+<UL>
+	<LI><P>file info ( the mode, ower id, group id, length,...)</P>
+	<LI><P>the hard link(s) that refers to the file.</P>
+</UL>
+<P>A directory also appears as a file (ie. has an inode and hard
+link(s)) but has no data.</P>
+<P>The 12-bit ECC applies to only the tag data uses a similar
+algorithm to the 22-bit ECCs used for file system data. They are kept
+independent.</P>
+<H3>RAM data details</H3>
+<P>Block management details are reasonably obvious and, I feel, don't
+need to be addressed here apart from stating that there will be a
+structure to track block status (eg. number of pages in use, failed
+blocks, and which are candidates for garbage collection etc).</P>
+<P>The files need an indexing structure of sorts to locate and track
+the pages in the file. Some sort of tree structure should work rather
+well. The look-up needs to be quite efficient in both CPU time and
+space.</P>
+<H3>Page allocation and garbage collection</H3>
+<P>Pages are allocated sequentially from the currently selected
+block. When all the pages in the block are filled, another clean
+block is selected for allocation. At least two or three clean blocks
+are reserved for garbage collection purposes. If there are
+insufficient clean blocks available, then a dirty block ( ie one
+containing only discarded pages) is erased to free it up as a clean
+block. If no dirty blocks are available, then the dirtiest block is
+selected for garbage collection.</P>
+<P>Garbage collection is performed by copying the valid data pages
+into new data pages thus rendering all the pages in this block dirty
+and freeing it up for erasure. I also like the idea of selecting a
+block at random some small percentage of the time - thus reducing the
+chance of wear differences.</P>
+<P>Relative to NOR, NAND writes and erases very fast. Therefore
+garbage collection might be performed on-demand (eg. during a write)
+without significant degradation in performance. Alternatively garbage
+collection might be delegated to a kernel tasklet.</P>
+<P>Relative to JFFSx, the garbage collection presented here is
+incredibly simple - thanks mainly to the use of fixed-size pages
+instead of journaling nodes.</P>
+<H3>Flash writing</H3>
+<P>As presented here, YAFFS only writes to the page's data area once
+and to the spare area twice (once when new page is written and once when it
+gets stomped on) before an erasure. This is within the limits of the most
+restrictive NAND flashes.</P>
+
+<H3>Wear leveling</H3>
+<P>No wear leveling is explicitly used here. Instead we rely on two
+&quot;strategies&quot;:</P>
+<UL>
+	<LI><P>Reserving some blocks to cater for failure. You need to do
+	this anyway with NAND. The main purpose behind wear leveling is to
+	prevent some blocks getting more wear and failing. Since we expect,
+	and handle, failure this is no longer as important.</P>
+	<LI><P>The infrequent random block selection should prevent low-wear
+	blocks getting &quot;stuck&quot;.</P>
+</UL>
+<h3>Partitioning</h3>
+<p> Partitioning is not included in this spec, but could be added if
+required.</p>
+<h3>Bootloading</h3>
+<p>Bootloaders cannot just read files direct from NAND due to the high
+probability of bad blocks. Because YAFFS is quite simple it will be
+relatively straightforward for bootloaders to read from it (eg reading a
+kernel).</p>
+
+<H3>Conclusion</H3>
+<P>YAFFS is very simple. It is also NAND-friendly, is relatively
+frugal with resources (especially RAM) and boots quickly. Like JFFSx
+it has journaling which makes it far more robust than FAT.</P>
+<P>While it might seem high-risk to develop YAFFS, it is probably
+about the same amount of effort as implementing changes to JFFS to
+get it to work effectively within the constraints of NAND. A
+resulting JFFSx system would still require significant amounts of RAM
+and have long boot times.</P>
+<P>While YAFFS is indeed a new file system internally, much of the
+file system glue code (including inode management, link management
+etc) can likely be stolen from JFFSx. 
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>
