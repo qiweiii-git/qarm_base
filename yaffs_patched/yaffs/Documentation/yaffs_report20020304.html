@@ -1,0 +1,57 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20020211;20201700">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20020304;21123700">
+</HEAD>
+<BODY>
+<H3>YAFFS Progress 4 March 2002</H3>
+<H3><BR><BR>
+</H3>
+<H3>Design</H3>
+<P>A few of the design areas needed to be tweaked slightly without
+significant impact.</P>
+<P>The only real significance is that what is termed a yaffs_Inode
+really becomes an object Id. Where an 'object' is a file, directory,
+symlink or hard link. This differs from the *nix concept of an inode
+in that a hard link is not an inode. yaffs_Inode should really be
+renamed to yaffs_Object to reflect this.</P>
+<P>Rge reason for introducing the object is to provide identifiers
+for the objects stored on NAND. For example, each hardlink (which
+does not have a distinct inode) needs an object Id for storage on 
+</P>
+<H3>Code</H3>
+<P>Pretty much all the guts of the code is there except for:</P>
+<UL>
+	<LI><P>symlink handling (a doddle)</P>
+	<LI><P>hard link handling.</P>
+	<LI><P>some of start-up scanning</P>
+	<LI><P>ECC on tags</P>
+	<LI><P>superblock handling (ie hook-up to mtd and the Linux VFS).
+	Some of this code to be pinched from JFFS2.</P>
+</UL>
+<P>Some of the code has already been tested.</P>
+<P>I will now be testing out the guts on a NAND emulation layer in an
+application. This provides better debugging. I hope to have this
+running by 11/03/2002. 
+</P>
+<P>Once the guts looks solid on the NAND emulation, I will graft it
+on to the VFS and mtd -  at which point it becomes a real file
+system.</P>
+<H3>Time</H3>
+<P>So far I've logged 90 hours on yaffs. I will not be charging for
+approx 15 hours I have spent swotting up on the Linux VFS. I still
+believe this is on budget.</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

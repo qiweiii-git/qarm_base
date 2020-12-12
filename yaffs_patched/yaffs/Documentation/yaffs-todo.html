@@ -1,0 +1,71 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20020501;19062800">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20020821;21171400">
+</HEAD>
+<BODY>
+<H1>YAFFS Todo as at <SDFIELD TYPE=DATETIME SDNUM="5129;2057;DD/MM/YYYY">21/08/2002</SDFIELD></H1>
+<H3>Stuff not yet done</H3>
+<OL>
+	<LI><P>Directory locking during directory walk.</P>
+	<LI><P>Other locking.... investigate what is needed.</P>
+	<LI><P>Add write memory mapping. We probably need this to support
+	loop mounting.</P>
+	<LI><P>At scan time, check that the file size in the ObjectHeader
+	matches the filesize of the scanned blocks.</P>
+</OL>
+<H3>Tools to be done</H3>
+<OL>
+	<LI><P>Dumper and analyser to work off the mtd.</P>
+</OL>
+<H3>Recently done with no known problems (ie. probably needs
+significant testing)</H3>
+<OL>
+	<LI><P>ECC and write failure handling.</P>
+	<LI><P>Added symlinks and hard links to VFS interface.</P>
+	<LI><P>Fixed problem with persistence. Object header was not being
+	updated at end of write and the file size was getting corrupted.</P>
+	<LI><P>Fixed problem where obsoleted object headers were not being
+	deleted on NAND. This caused multiple file entries. Looks like it is
+	working properly now.</P>
+	<LI><P>Read memory mapping. Can now execute a file from yaffs.</P>
+	<LI><P>We now mark a chunk as deleted by marking the OOB data
+	validity flag. Before this we just stomped on the tags, which was
+	mot such a good thing to do with newer NANDs which do not like this
+	sort of thing.</P>
+</OL>
+<OL>
+	<LI><P>File pruning is done in reverse order so that if power is
+	lost part-way through, the file does not have any holes.</P>
+</OL>
+<OL>
+	<LI><P>mkyaffsimage. Tool to make a yaffs image from a directory (in
+	the spirit of mkcramfs).</P>
+	<LI><P>Added support for special inodes (pipes, character &amp;
+	block devices, sockets).</P>
+	<LI><P>Added generic read/write support to use page caching.
+	Selectable by configuration of CONFIG_YAFFS_USE_GENERIC_RW.</P>
+</OL>
+<H3>Done, but currently known to be broken</H3>
+<OL>
+	<LI><P>If you fill yaffs and then try to copy more files into it,
+	you end up with a bunch of objxxx files when you do an ls.</P>
+</OL>
+<H3>Longer term stuff to do</H3>
+<OL>
+	<LI><P>Discuss improved NAND page interface with mtd group. This has
+	actually started. Luc van Oostenryck is also looking at an
+	alternative layer to mtd.</P>
+	<LI><P>Pull out all YAFFS_OK and YAFFS_FAIL style errors and return
+	with -ENOMEM style error messages.</P>
+</OL>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>

@@ -1,0 +1,81 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-1">
+	<TITLE></TITLE>
+	<META NAME="GENERATOR" CONTENT="StarOffice/5.2 (Linux)">
+	<META NAME="AUTHOR" CONTENT=" ">
+	<META NAME="CREATED" CONTENT="20020211;20201700">
+	<META NAME="CHANGEDBY" CONTENT=" ">
+	<META NAME="CHANGED" CONTENT="20020211;21005100">
+</HEAD>
+<BODY>
+<H3>YAFFS Progress 11 Feb 2002</H3>
+<H3>Approach</H3>
+<P><I>C. A. R. Hoare, in his 1980 ACM Turing Award lecture, told of
+two ways of constructing a software design: &quot;One way is to make
+it so simple that there are obviously no deficiencies and the other
+way is to make it so complicated that there are no obvious
+deficiencies.&quot;</I></P>
+<P>The approach I'm taking with Yaffs is to design and make notes up
+front as much as possible. I find this helps make the coding/debug
+phase go way faster and more predictably.</P>
+<P>Although obviously the code ends up in the kernel, I'm abstracting
+out kernel services so that I develop/debug in user space using
+vanilla dev tools. I like to use Source Navigator because it has a
+nice xref capability though a few quirks too). Thus, yaffs code will
+be tested in application space wrapped in a test harness which calls
+the yaffs functions. and sits on top of a NAND emulation layer (just
+two big disk files).  I can then do things like force ecc failures
+etc at will to test recovery logic and check booting etc. This
+general approach has served me well in the past and I expect it will
+this time too.</P>
+<H3>Design</H3>
+<P>At this stage all the major design work is done. Basically there
+are 3 in RAM management &quot;objects&quot;:</P>
+<UL>
+	<LI><P> inodes: An inode maps to the normal file system concept of
+	an inode. It is thus either a file or a directory. <BR>A file type
+	inode points to a tnode tree which is a layered tree that is used to
+	quickly find the pages of data in NAND.<BR>A directory type inode
+	has a list of children links (ie. the links in that directory).<BR>An
+	inode knows which hard links are associated with it.<BR>inode
+	look-up uses a hashing table.</P>
+	<LI><P>links: Links are hard or soft links. All links have a parent
+	inode (ie. the directory they're in). <BR>Hard links point to an
+	inode.<BR>Soft links are just alias strings.<BR>Instead of storing
+	the link name in RAM (big and wasteful and variable size), the
+	location in NAND is stored instead and a u16 &quot;checksum&quot;
+	value is stored in RAM to help in quickly scanning links [ie. say
+	the checksum for &quot;freddies_file&quot; is 123 then when I go
+	search for it I don't need to go look at every link in NAND (slow),
+	just those that match checksum 123]. 
+	</P>
+	<LI><P>tnodes: Tnodes are a tiered tree system to rapidly get from
+	inodes to their data pages in RAM.</P>
+</UL>
+<P>There is a need for speed in certain areas, such as rapidly
+locating inodes, links data pages during certain scenarios (eg.
+garbage collection). These have been identified and suitable  look-up
+structures are in place.</P>
+<P>All dynamic data structures are allocated from pools rather than
+one at a time. This is more efficient time-wise and simplifies
+clean-up.</P>
+<H3>Code</H3>
+<P>Much of the code for the management layers is already in place, as
+is some of the tag management code. Some of the code has already been
+tested.</P>
+<P>I have started with coding the management layer since this is the
+most critical part to get right. Every now and then I have coded up
+some other section to verify that what I have will work.</P>
+<H3>Time</H3>
+<P>So far I've logged 65 hours on yaffs (though it chews up
+significant null cycles too :-)). I believe this is comfortably
+within budget. I was not able to make much progress through Christmas
+and the week of January, but am able to give a lot more effort now.</P>
+<P><BR><BR>
+</P>
+<P><BR><BR>
+</P>
+</BODY>
+</HTML>
