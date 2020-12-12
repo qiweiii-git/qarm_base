@@ -1,1 +1,0 @@
-#define CONFIG_FEATURE_RPM_BZ2 1
